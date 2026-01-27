@@ -1,0 +1,34 @@
+name: Build Whisper Server (Windows)
+
+on:
+  workflow_dispatch:  # Gör att du kan starta bygget manuellt med en knapp
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Hämta koden
+      uses: actions/checkout@v4
+
+    - name: Konfigurera CMake
+      # Vi bygger med AVX2 (standard på GitHubs runners) och stänger av onödiga tester
+      run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON 
+
+    - name: Bygg (Compile)
+      # --config Release ger en snabb optimerad version
+      run: cmake --build build --config Release
+
+    - name: Hitta och flytta server.exe
+      run: |
+        mkdir output
+        # Flytta filen till en ren mapp
+        copy build\bin\Release\server.exe output\whisper-server.exe
+        # Kopiera dll-filer om de behövs
+        if (Test-Path build\bin\Release\*.dll) { copy build\bin\Release\*.dll output\ }
+
+    - name: Ladda upp som Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: min-whisper-server
+        path: output/*
