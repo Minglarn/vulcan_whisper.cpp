@@ -1,7 +1,7 @@
 name: Build Whisper Server (Windows)
 
 on:
-  workflow_dispatch:  # Gör att du kan starta bygget manuellt med en knapp
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,20 +12,21 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Konfigurera CMake
-      # Vi bygger med AVX2 (standard på GitHubs runners) och stänger av onödiga tester
-      run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON 
+      # Vi säkerställer att servern byggs genom att slå på exempel
+      run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
 
     - name: Bygg (Compile)
-      # --config Release ger en snabb optimerad version
       run: cmake --build build --config Release
 
-    - name: Hitta och flytta server.exe
+    - name: Hitta och flytta server.exe (Smart Search)
       run: |
         mkdir output
-        # Flytta filen till en ren mapp
-        copy build\bin\Release\server.exe output\whisper-server.exe
-        # Kopiera dll-filer om de behövs
-        if (Test-Path build\bin\Release\*.dll) { copy build\bin\Release\*.dll output\ }
+        Write-Host "Letar efter server.exe..."
+        # Detta kommando söker igenom hela build-mappen efter server.exe och kopierar den
+        Get-ChildItem -Path build -Recurse -Filter "server.exe" | Copy-Item -Destination output\whisper-server.exe
+        
+        # Kopiera även DLL-filer om de hittas
+        Get-ChildItem -Path build -Recurse -Filter "*.dll" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
 
     - name: Ladda upp som Artifact
       uses: actions/upload-artifact@v4
