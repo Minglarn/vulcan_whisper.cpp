@@ -18,10 +18,28 @@ jobs:
         vulkan-components: Vulkan-Headers, Vulkan-Loader
         vulkan-use-cache: true
 
-    - name: Konfigurera CMake
+    - name: Konfigurera CMake (Search & Force)
       shell: powershell
-      # Vi litar nu på att Actionen ovan har satt $env:VULKAN_SDK korrekt
-      run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1
+      run: |
+        Write-Host "Letar efter Vulkan-bibliotek..."
+        
+        # Vi söker igenom hela arbetskatalogen efter vulkan-1.lib
+        $lib = Get-ChildItem -Path . -Recurse -Filter "vulkan-1.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        if ($lib) {
+            $root = $lib.Directory.Parent.FullName
+            Write-Host "Hittade Vulkan Root: $root"
+            Write-Host "Hittade Lib: $($lib.FullName)"
+            
+            # Vi tvingar CMake att använda exakt dessa sökvägar
+            cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1 `
+                -DVulkan_LIBRARY="$($lib.FullName)" `
+                -DVulkan_INCLUDE_DIR="$root\Include"
+        } else {
+            Write-Error "Hittade inte Vulkan-filerna! Försöker standardvägen..."
+            # Fallback om sökningen misslyckas
+            cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1
+        }
 
     - name: Bygg (Compile)
       run: cmake --build build --config Release
@@ -32,11 +50,11 @@ jobs:
         Write-Host "Kopierar filer..."
         Get-ChildItem -Path build -Recurse -Filter "*.exe" | Copy-Item -Destination output\
         Get-ChildItem -Path build -Recurse -Filter "*.dll" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
-        # Kopiera shaders (.spv) - Om de inte hittas ignorerar vi det (vissa versioner bakar in dem)
+        # Kopiera shaders (.spv) - Viktigt för Vulkan!
         Get-ChildItem -Path build -Recurse -Filter "*.spv" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
 
     - name: Ladda upp som Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: whisper-server-vulkan-final
+        name: whisper-server-vulkan-search
         path: output/*
