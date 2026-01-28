@@ -11,47 +11,17 @@ jobs:
     - name: Hämta koden
       uses: actions/checkout@v4
 
-    - name: Setup Vulkan SDK (Action)
-      id: vulkan
+    - name: Setup Vulkan SDK
       uses: humbletim/setup-vulkan-sdk@v1
       with:
         vulkan-query-version: 1.3.283.0
         vulkan-components: Vulkan-Headers, Vulkan-Loader
         vulkan-use-cache: true
 
-    - name: Hitta Vulkan och Sätt Miljövariabler
+    - name: Konfigurera CMake
       shell: powershell
-      run: |
-        # Actionen sätter inte alltid variabeln globalt för PowerShell, så vi gör det själva
-        # Vi letar upp mappen som skapades
-        $sdk = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1
-        
-        if ($sdk) {
-            Write-Host "Hittade Vulkan SDK på: $($sdk.FullName)"
-            
-            # Spara till GitHub ENV så nästa steg ser det
-            echo "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
-            
-            # Spara specifika sökvägar för CMake
-            echo "Vulkan_INCLUDE_DIR=$($sdk.FullName)\Include" >> $env:GITHUB_ENV
-            echo "Vulkan_LIBRARY=$($sdk.FullName)\Lib\vulkan-1.lib" >> $env:GITHUB_ENV
-        } else {
-            Write-Error "Hittade ingen Vulkan-mapp!"
-            exit 1
-        }
-
-    - name: Konfigurera CMake (Med tvingad sökväg)
-      shell: powershell
-      run: |
-        Write-Host "VULKAN_SDK: $env:VULKAN_SDK"
-        
-        # Vi skickar in sökvägarna direkt till CMake för säkerhets skull
-        cmake -B build `
-          -DWHISPER_BUILD_TESTS=OFF `
-          -DWHISPER_BUILD_EXAMPLES=ON `
-          -DGGML_VULKAN=1 `
-          -DVulkan_INCLUDE_DIR="$env:Vulkan_INCLUDE_DIR" `
-          -DVulkan_LIBRARY="$env:Vulkan_LIBRARY"
+      # Vi litar nu på att Actionen ovan har satt $env:VULKAN_SDK korrekt
+      run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1
 
     - name: Bygg (Compile)
       run: cmake --build build --config Release
@@ -62,11 +32,11 @@ jobs:
         Write-Host "Kopierar filer..."
         Get-ChildItem -Path build -Recurse -Filter "*.exe" | Copy-Item -Destination output\
         Get-ChildItem -Path build -Recurse -Filter "*.dll" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
-        # Kopiera shaders (viktigt för GPU!)
+        # Kopiera shaders (.spv) - Om de inte hittas ignorerar vi det (vissa versioner bakar in dem)
         Get-ChildItem -Path build -Recurse -Filter "*.spv" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
 
     - name: Ladda upp som Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: whisper-server-vulkan-fixed
+        name: whisper-server-vulkan-final
         path: output/*
