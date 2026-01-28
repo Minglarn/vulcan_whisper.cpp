@@ -818,6 +818,16 @@ int main(int argc, char ** argv) {
 
         // check non-required fields
         get_req_parameters(req, params);
+        // --- MINGLARN DEBUG START (REQUEST) ---
+        fprintf(stderr, "\n==================================================\n");
+        fprintf(stderr, ">>> RAW BODY FRÅN DASHBOARD:\n%s\n", req.body.c_str());
+        fprintf(stderr, ">>> SERVER INSTÄLLNINGAR NU:\n");
+        fprintf(stderr, "    Model: %s\n", params.model.c_str());
+        fprintf(stderr, "    Language: %s\n", params.language.c_str());
+        fprintf(stderr, "    Beam Size: %d\n", params.beam_size);
+        fprintf(stderr, "    Best Of: %d\n", params.best_of);
+        fprintf(stderr, "==================================================\n");
+        // --- MINGLARN DEBUG END ---
 
         std::string filename{audio_file.filename};
         printf("Received request: %s\n", filename.c_str());
@@ -1038,6 +1048,11 @@ int main(int argc, char ** argv) {
             }
             res.set_content(ss.str(), "text/vtt");
         } else if (params.response_format == vjson_format) {
+            // --- MINGLARN DEBUG START (RESULTAT) ---
+            fprintf(stderr, "\n--------------------------------------------------\n");
+            fprintf(stderr, ">>> WHISPER HÖRDE:\n%s\n", results.c_str());
+            fprintf(stderr, "--------------------------------------------------\n\n");
+            // --- MINGLARN DEBUG END ---
             /* try to match openai/whisper's Python format */
             std::string results = output_str(ctx, params, pcmf32s); 
             json jres = json{
