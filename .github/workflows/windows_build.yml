@@ -11,28 +11,44 @@ jobs:
     - name: Hämta koden
       uses: actions/checkout@v4
 
-    - name: Installera Vulkan SDK (Via Chocolatey)
+    - name: Installera Vulkan SDK (Manuell men säker)
       shell: powershell
       run: |
-        # Chocolatey är inbyggt i GitHubs runners och hanterar installationen snyggare
-        choco install vulkan-sdk -y
-        
-        # Vi måste hitta var den installerades för att CMake ska hitta den
-        $vulkanPath = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1
-        
-        if ($vulkanPath) {
-            Write-Host "Hittade Vulkan på: $($vulkanPath.FullName)"
-            # Sätt miljövariabeln så CMake hittar den
-            echo "VULKAN_SDK=$($vulkanPath.FullName)" >> $env:GITHUB_ENV
-            
-            # Lägg till bin-mappen i PATH också (hjälper ibland)
-            echo "$($vulkanPath.FullName)\Bin" >> $env:GITHUB_PATH
+        # Vi använder version 1.3.283.0 som är känd för att fungera i CI-miljöer
+        $ver = "1.3.283.0"
+        $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
+        $out = "vulkan_installer.exe"
+
+        Write-Host "Laddar ner Vulkan SDK $ver från $url..."
+        # curl.exe med -L följer redirects, vilket behövs för LunarG
+        curl.exe -L -o $out $url
+
+        if (-not (Test-Path $out)) {
+            Write-Error "Filen laddades inte ner korrekt!"
+            exit 1
+        }
+
+        Write-Host "Installerar..."
+        # /S betyder Silent. Vi väntar (-Wait) tills det är klart.
+        $process = Start-Process -FilePath .\$out -ArgumentList "/S" -PassThru -Wait
+
+        Write-Host "Installation klar med exit code: $($process.ExitCode)"
+
+        # Verifiera att mappen skapades
+        $sdkPath = "C:\VulkanSDK\$ver"
+        if (Test-Path $sdkPath) {
+            Write-Host "Vulkan hittades på: $sdkPath"
+            # Sätt miljövariabeln för CMake
+            echo "VULKAN_SDK=$sdkPath" >> $env:GITHUB_ENV
+            # Lägg till i PATH
+            echo "$sdkPath\Bin" >> $env:GITHUB_PATH
         } else {
-            Write-Error "Kunde inte hitta Vulkan SDK efter installation."
+            Write-Error "Installationsmappen $sdkPath saknas efter installation!"
             exit 1
         }
 
     - name: Konfigurera CMake (Med Vulkan GPU-stöd)
+      # Nu när VULKAN_SDK är satt i steget ovan kommer CMake hitta den
       run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1
 
     - name: Bygg (Compile)
@@ -43,15 +59,17 @@ jobs:
         mkdir output
         Write-Host "Kopierar filer..."
         
+        # Exe och DLL
         Get-ChildItem -Path build -Recurse -Filter "*.exe" | Copy-Item -Destination output\
         Get-ChildItem -Path build -Recurse -Filter "*.dll" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
         
-        # VIKTIGT: Hämta shaders (.spv) och json-filer som kan behövas för Vulkan
+        # VIKTIGT: Vulkan shaders (.spv) och konfigurationsfiler (.json)
+        # Utan dessa kan servern krascha när den försöker starta GPUn
         Get-ChildItem -Path build -Recurse -Filter "*.spv" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
         Get-ChildItem -Path build -Recurse -Filter "*.json" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
 
     - name: Ladda upp som Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: whisper-server-vulkan-choco
+        name: whisper-server-vulkan-final
         path: output/*
