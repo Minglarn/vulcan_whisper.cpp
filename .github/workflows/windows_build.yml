@@ -11,50 +11,22 @@ jobs:
     - name: Hämta koden
       uses: actions/checkout@v4
 
-    - name: Installera Vulkan SDK (Manuell men säker)
-      shell: powershell
-      run: |
-        # Vi använder version 1.3.283.0 som är känd för att fungera i CI-miljöer
-        $ver = "1.3.283.0"
-        $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
-        $out = "vulkan_installer.exe"
-
-        Write-Host "Laddar ner Vulkan SDK $ver från $url..."
-        # curl.exe med -L följer redirects, vilket behövs för LunarG
-        curl.exe -L -o $out $url
-
-        if (-not (Test-Path $out)) {
-            Write-Error "Filen laddades inte ner korrekt!"
-            exit 1
-        }
-
-        Write-Host "Installerar..."
-        # /S betyder Silent. Vi väntar (-Wait) tills det är klart.
-        $process = Start-Process -FilePath .\$out -ArgumentList "/S" -PassThru -Wait
-
-        Write-Host "Installation klar med exit code: $($process.ExitCode)"
-
-        # Verifiera att mappen skapades
-        $sdkPath = "C:\VulkanSDK\$ver"
-        if (Test-Path $sdkPath) {
-            Write-Host "Vulkan hittades på: $sdkPath"
-            # Sätt miljövariabeln för CMake
-            echo "VULKAN_SDK=$sdkPath" >> $env:GITHUB_ENV
-            # Lägg till i PATH
-            echo "$sdkPath\Bin" >> $env:GITHUB_PATH
-        } else {
-            Write-Error "Installationsmappen $sdkPath saknas efter installation!"
-            exit 1
-        }
+    - name: Setup Vulkan SDK (The Pro Way)
+      # Vi använder en dedikerad action som hanterar installationen åt oss
+      uses: humbletim/setup-vulkan-sdk@v1
+      with:
+        vulkan-query-version: 1.3.283.0
+        vulkan-components: Vulkan-Headers, Vulkan-Loader
+        vulkan-use-cache: true
 
     - name: Konfigurera CMake (Med Vulkan GPU-stöd)
-      # Nu när VULKAN_SDK är satt i steget ovan kommer CMake hitta den
+      # Actionen ovan sätter automatiskt VULKAN_SDK-variabeln så CMake hittar den
       run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1
 
     - name: Bygg (Compile)
       run: cmake --build build --config Release
 
-    - name: Hämta ALLA exe-filer (Trålen)
+    - name: Hämta filer (Trålen)
       run: |
         mkdir output
         Write-Host "Kopierar filer..."
@@ -63,13 +35,14 @@ jobs:
         Get-ChildItem -Path build -Recurse -Filter "*.exe" | Copy-Item -Destination output\
         Get-ChildItem -Path build -Recurse -Filter "*.dll" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
         
-        # VIKTIGT: Vulkan shaders (.spv) och konfigurationsfiler (.json)
-        # Utan dessa kan servern krascha när den försöker starta GPUn
+        # SUPERVIKTIGT: Vulkan shaders (.spv). Utan dessa fungerar inte GPUn!
         Get-ChildItem -Path build -Recurse -Filter "*.spv" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
+        
+        # JSON-filer kan behövas för config
         Get-ChildItem -Path build -Recurse -Filter "*.json" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
 
     - name: Ladda upp som Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: whisper-server-vulkan-final
+        name: whisper-server-vulkan-action
         path: output/*
