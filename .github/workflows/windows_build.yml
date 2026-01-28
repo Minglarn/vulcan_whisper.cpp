@@ -11,32 +11,28 @@ jobs:
     - name: Hämta koden
       uses: actions/checkout@v4
 
-    - name: Installera Vulkan SDK
+    - name: Installera Vulkan SDK (Via Chocolatey)
       shell: powershell
       run: |
-        # Vi byter till version 1.3.290.0 som finns tillgänglig
-        $vulkanVersion = "1.3.290.0"
-        $vulkanUrl = "https://sdk.lunarg.com/sdk/download/$vulkanVersion/windows/VulkanSDK-$vulkanVersion-Installer.exe"
+        # Chocolatey är inbyggt i GitHubs runners och hanterar installationen snyggare
+        choco install vulkan-sdk -y
         
-        Write-Host "Laddar ner Vulkan SDK version $vulkanVersion..."
-        # Använd curl.exe explicit för att undvika PowerShell-alias problem
-        curl.exe -L -o vulkan_sdk.exe $vulkanUrl
+        # Vi måste hitta var den installerades för att CMake ska hitta den
+        $vulkanPath = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1
         
-        Write-Host "Installerar Vulkan SDK..."
-        Start-Process -FilePath .\vulkan_sdk.exe -ArgumentList "/S" -Wait
-        
-        # Kolla så det gick bra
-        if (Test-Path "C:\VulkanSDK\$vulkanVersion") {
-            Write-Host "Installation lyckades!"
+        if ($vulkanPath) {
+            Write-Host "Hittade Vulkan på: $($vulkanPath.FullName)"
             # Sätt miljövariabeln så CMake hittar den
-            echo "VULKAN_SDK=C:\VulkanSDK\$vulkanVersion" >> $env:GITHUB_ENV
+            echo "VULKAN_SDK=$($vulkanPath.FullName)" >> $env:GITHUB_ENV
+            
+            # Lägg till bin-mappen i PATH också (hjälper ibland)
+            echo "$($vulkanPath.FullName)\Bin" >> $env:GITHUB_PATH
         } else {
-            Write-Error "Kunde inte hitta installationen."
+            Write-Error "Kunde inte hitta Vulkan SDK efter installation."
             exit 1
         }
 
     - name: Konfigurera CMake (Med Vulkan GPU-stöd)
-      # Vi lägger till sökvägen till SDKn explicit om den inte hittas automatiskt
       run: cmake -B build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_VULKAN=1
 
     - name: Bygg (Compile)
@@ -50,12 +46,12 @@ jobs:
         Get-ChildItem -Path build -Recurse -Filter "*.exe" | Copy-Item -Destination output\
         Get-ChildItem -Path build -Recurse -Filter "*.dll" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
         
-        # VIKTIGT: För GPU-stöd behöver vi ofta shader-filer (.spv) eller extra libs
-        # Vi försöker kopiera allt relevant som kan ha skapats
+        # VIKTIGT: Hämta shaders (.spv) och json-filer som kan behövas för Vulkan
         Get-ChildItem -Path build -Recurse -Filter "*.spv" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
+        Get-ChildItem -Path build -Recurse -Filter "*.json" | Copy-Item -Destination output\ -ErrorAction SilentlyContinue
 
     - name: Ladda upp som Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: whisper-server-vulkan-fixed
+        name: whisper-server-vulkan-choco
         path: output/*
